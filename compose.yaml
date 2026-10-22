@@ -1,0 +1,46 @@
+x-peer-drop: &peer-drop
+  image: peer-drop:local
+  build: .
+  init: true
+
+services:
+  logger:
+    <<: *peer-drop
+    command: sh -c "rpcbind -w && exec peer-drop-logger"
+
+  server:
+    <<: *peer-drop
+    command: peer-drop-server -p ${PEER_DROP_PORT:-4500}
+    environment:
+      PEER_DROP_LOGGER_HOST: logger
+    depends_on:
+      - logger
+    ports:
+      - "${PEER_DROP_PORT:-4500}:${PEER_DROP_PORT:-4500}"
+
+  timestamp:
+    <<: *peer-drop
+    command: peer-drop-timestamp --host 0.0.0.0
+
+  peer:
+    <<: *peer-drop
+    profiles: [peer]
+    command: peer-drop -s server -p ${PEER_DROP_PORT:-4500}
+    environment:
+      PEER_DROP_TIMESTAMP_URL: http://timestamp:5678/timestamp
+    working_dir: /files
+    volumes:
+      - ./files:/files
+    stdin_open: true
+    tty: true
+    depends_on:
+      - server
+      - timestamp
+
+  demo:
+    <<: *peer-drop
+    profiles: [demo]
+    command: python scripts/demo.py --server server --port ${PEER_DROP_PORT:-4500} --timestamp-url http://timestamp:5678/timestamp
+    depends_on:
+      - server
+      - timestamp
