@@ -1,0 +1,61 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+      - run: pip install "ruff>=0.8"
+      - run: ruff check .
+      - run: ruff format --check .
+
+  system:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+      - run: sudo apt-get update && sudo apt-get install -y build-essential pkg-config libtirpc-dev rpcsvc-proto rpcbind
+      - run: make
+      - run: make test
+      - run: sudo rpcbind -w || true
+      - run: pip install -e ".[dev]"
+      - run: pytest -v
+
+  client:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        python-version: ["3.10", "3.13"]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python-version }}
+      - run: pip install -e ".[dev]"
+      - run: pytest -q
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - run: docker compose build
+      - run: docker compose up -d
+      - run: docker compose --profile demo run --rm demo
+      - run: docker compose logs logger | grep "bob PUBLISH holiday.jpg"
+      - run: mkdir -p files && echo "shared" > files/hello.txt
+      - run: printf 'REGISTER zoe\nCONNECT zoe\nPUBLISH hello.txt greetings\nLIST_CONTENT zoe\nQUIT\n' | docker compose run --rm -T peer | tee peer.log
+      - run: grep "PUBLISH OK" peer.log && grep "hello.txt" peer.log
+      - if: always()
+        run: docker compose down
